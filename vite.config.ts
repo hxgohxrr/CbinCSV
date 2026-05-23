@@ -5,7 +5,7 @@ import path from 'path'
 export default defineConfig({
   plugins: [vue()],
   resolve: {
-    alias: { '@lang': path.resolve(__dirname, '../.lang') }
+    alias: { '@lang': path.resolve(__dirname, 'src/lang') }
   },
   clearScreen: false,
   server: { port: 1420, strictPort: true },
