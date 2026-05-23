@@ -1,4 +1,6 @@
-# CBinCSV
+<div align="center">
+    <img src="./public/logo.png"/>
+</div>
 
 A desktop tool for extracting, editing, and reimporting dialogue text from Level-5 `.cfg.bin` files. Designed for game translation workflows.
 
