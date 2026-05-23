@@ -5,6 +5,13 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -59,10 +66,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'CBinCSV ${{ github.ref_name }}'
+          tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          releaseName: 'CBinCSV ${{ github.event_name == ''workflow_dispatch'' && inputs.tag || github.ref_name }}'
           releaseBody: |
-            See [CHANGELOG](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) for details.
+            See the [release notes](https://github.com/${{ github.repository }}/releases) for details.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
