@@ -1,0 +1,61 @@
+{
+  "sidebar.game": "Jeu",
+  "sidebar.mode": "Mode",
+  "sidebar.files": "Fichiers",
+  "sidebar.import": "Importer des fichiers",
+  "sidebar.openFolder": "Ouvrir un dossier",
+
+  "game.standard": "Standard",
+  "game.nnk": "Ni no Kuni",
+  "game.info.mode": "Mode",
+  "game.info.encoding": "Encodage",
+  "game.standard.info.mode": "cfg.bin standard",
+  "game.standard.info.encoding": "UTF-8",
+  "game.nnk.info.mode": "Ni no Kuni",
+  "game.nnk.info.encoding": "UTF-16 LE",
+
+  "mode.standard": "Standard",
+  "mode.nnk": "NNK",
+
+  "toolbar.langs": "Langues visibles",
+  "toolbar.search": "Rechercher...",
+
+  "table.entries": "entrées",
+  "table.untranslated": "Non traduit",
+
+  "import.title": "Importer des fichiers cfg.bin",
+  "import.sub": "Glissez des fichiers ou utilisez les boutons pour commencer",
+  "import.drop": "Déposez les fichiers ici",
+  "import.dropSub": "Fichiers .cfg.bin ou .bin",
+  "import.continue": "ou",
+  "import.files": "Sélectionner des fichiers",
+  "import.folder": "Sélectionner un dossier",
+
+  "export.title": "Exporter",
+  "export.format": "Format",
+  "export.format.single": "CSV unique",
+  "export.format.perFile": "CSV par fichier",
+  "export.langs": "Langues à exporter",
+  "export.separator": "Séparateur",
+  "export.sep.semicolon": "Point-virgule  ;",
+  "export.sep.comma": "Virgule  ,",
+  "export.sep.tab": "Tabulation  ⇥",
+  "export.btn": "Exporter CSV",
+  "reimport.btn": "Réimporter CSV",
+
+  "settings.title": "Paramètres",
+  "settings.theme": "Thème",
+  "settings.theme.dark": "Sombre",
+  "settings.theme.light": "Clair",
+  "settings.theme.system": "Système",
+  "settings.accent": "Couleur d'accentuation",
+  "settings.locale": "Langue",
+  "settings.splash": "Afficher l'écran de démarrage",
+  "settings.sound": "Volume sonore",
+  "settings.soundMuted": "Muet",
+  "settings.save": "Enregistrer",
+
+  "status.files": "fichiers",
+  "status.entries": "entrées",
+  "status.untranslated": "non traduits"
+}
