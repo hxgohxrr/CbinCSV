@@ -91,3 +91,6 @@ The original `.cfg.bin` files are never overwritten; output always goes to a fol
 ## Language Support
 
 The UI language defaults to the operating system locale. If the OS locale is not supported, it falls back to Spanish. Supported UI languages: Spanish, English, French, German, Japanese, Italian.
+
+## Credits
+OnePieceFreak3 - Cfg.bin Editor
