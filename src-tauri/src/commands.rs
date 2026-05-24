@@ -1,15 +1,18 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use tauri::AppHandle;
 use tauri::Emitter;
 
 use crate::cfgbin::CfgBin;
 use crate::csv_handler::{
-    build_csv, extract_ev_name_from_path, extract_language_from_path,
-    parse_csv_rows, CsvFormat, FileEntry, ParseMode, ProgressPayload, SessionData,
+    extract_ev_name_from_path, extract_language_from_path,
+    CsvFormat, FileEntry, ParseMode, ProgressPayload, SessionData,
 };
+use crate::format_handler::{build_rows, serialize_rows, deserialize_rows, format_from_extension, file_extension, ExportFormat};
+use crate::rdbn;
 
 #[tauri::command]
 pub fn parse_files(
@@ -32,8 +35,15 @@ pub fn parse_files(
             .unwrap_or_else(|| Path::new(path).file_stem().unwrap_or_default().to_string_lossy().to_string());
         let language = extract_language_from_path(path).unwrap_or_else(|| "??".to_string());
 
+        if rdbn::is_rdbn(&data) {
+            let rdbn_file = rdbn::RdbnFile::open(&data).map_err(|e| e.to_string())?;
+            let entries = rdbn_file.extract_fields();
+            files.push(FileEntry { path: path.clone(), ev_name, language, mode: ParseMode::Rdbn, entries, addresses: None });
+            continue;
+        }
+
         let (entries, addresses) = match mode {
-            ParseMode::Standard => {
+            ParseMode::Standard | ParseMode::Rdbn => {
                 let cfg = CfgBin::open(&data).map_err(|e| e.to_string())?;
                 (cfg.extract_texts(), None)
             }
@@ -45,6 +55,7 @@ pub fn parse_files(
                         index: i,
                         entry: String::new(),
                         variable_index: 0,
+                        field_type: "string".to_string(),
                         value: v,
                     })
                     .collect();
@@ -78,21 +89,23 @@ pub fn parse_folder(
 }
 
 #[tauri::command]
-pub fn export_csv(
+pub fn export_formatted(
     app: AppHandle,
     session: SessionData,
     output_path: String,
     langs: Vec<String>,
     format: CsvFormat,
+    file_format: ExportFormat,
     separator: String,
 ) -> Result<(), String> {
     let sep = separator.chars().next().unwrap_or(';');
-    let total = session.files.iter().map(|f| &f.ev_name).collect::<std::collections::HashSet<_>>().len();
+    let ext = file_extension(file_format);
 
     match format {
         CsvFormat::Single => {
-            let csv = build_csv(&session, &langs, sep).map_err(|e| e.to_string())?;
-            fs::write(&output_path, csv.as_bytes()).map_err(|e| e.to_string())?;
+            let rows = build_rows(&session, &langs);
+            let content = serialize_rows(&rows, file_format, sep).map_err(|e| e.to_string())?;
+            fs::write(&output_path, content.as_bytes()).map_err(|e| e.to_string())?;
         }
         CsvFormat::PerFile => {
             let ev_names: Vec<String> = {
@@ -102,6 +115,7 @@ pub fn export_csv(
                     .map(|f| f.ev_name.clone())
                     .collect()
             };
+            let total = ev_names.len();
             for (i, ev_name) in ev_names.iter().enumerate() {
                 let _ = app.emit("progress", ProgressPayload {
                     current: i, total, file: ev_name.clone(),
@@ -112,24 +126,30 @@ pub fn export_csv(
                         .cloned()
                         .collect(),
                 };
-                let csv = build_csv(&sub, &langs, sep).map_err(|e| e.to_string())?;
-                let out = Path::new(&output_path).join(format!("{}.csv", ev_name));
-                fs::write(out, csv.as_bytes()).map_err(|e| e.to_string())?;
+                let rows = build_rows(&sub, &langs);
+                let content = serialize_rows(&rows, file_format, sep).map_err(|e| e.to_string())?;
+                let out = Path::new(&output_path).join(format!("{}.{}", ev_name, ext));
+                fs::write(out, content.as_bytes()).map_err(|e| e.to_string())?;
             }
+            let _ = app.emit("progress", ProgressPayload { current: total, total, file: String::new() });
         }
     }
-    let _ = app.emit("progress", ProgressPayload { current: total, total, file: String::new() });
     Ok(())
 }
 
 #[tauri::command]
-pub fn import_csv_rows(
-    csv_path: String,
+pub fn import_formatted(
+    file_path: String,
     separator: String,
-) -> Result<Vec<(String, usize, std::collections::HashMap<String, String>)>, String> {
+) -> Result<Vec<(String, String, usize, std::collections::HashMap<String, String>)>, String> {
     let sep = separator.chars().next().unwrap_or(';');
-    let content = fs::read_to_string(&csv_path).map_err(|e| e.to_string())?;
-    parse_csv_rows(&content, sep).map_err(|e| e.to_string())
+    let file_format = format_from_extension(&file_path);
+    let content = fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
+    let rows = deserialize_rows(&content, file_format, sep).map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(|row| {
+        let lang_map: std::collections::HashMap<String, String> = row.values.into_iter().collect();
+        (row.ev_name, row.field_type, row.index, lang_map)
+    }).collect())
 }
 
 #[tauri::command]
@@ -153,6 +173,11 @@ pub fn write_cfgbin(
                 let mut cfg = CfgBin::open(&data).map_err(|e| e.to_string())?;
                 cfg.update_texts(&file.entries);
                 cfg.save()
+            }
+            ParseMode::Rdbn => {
+                let mut rdbn_file = rdbn::RdbnFile::open(&data).map_err(|e| e.to_string())?;
+                rdbn_file.update_fields(&file.entries);
+                rdbn_file.save()
             }
             ParseMode::Nnk => {
                 let addrs = file.addresses.as_ref()
@@ -184,4 +209,48 @@ pub fn get_system_locale() -> String {
     sys_locale::get_locale()
         .map(|l| l.to_lowercase())
         .unwrap_or_else(|| "es".to_string())
+}
+
+#[tauri::command]
+pub async fn sync_session(
+    session_state: tauri::State<'_, Arc<tokio::sync::RwLock<crate::csv_handler::SessionData>>>,
+    session: crate::csv_handler::SessionData,
+) -> Result<(), String> {
+    let mut guard = session_state.write().await;
+    *guard = session;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_mcp_server(
+    app: tauri::AppHandle,
+    port: u16,
+    session_state: tauri::State<'_, Arc<tokio::sync::RwLock<crate::csv_handler::SessionData>>>,
+    mcp_handle: tauri::State<'_, crate::McpHandle>,
+) -> Result<(), String> {
+    {
+        let mut guard = mcp_handle.0.lock().await;
+        if let Some(h) = guard.take() {
+            h.abort();
+        }
+    }
+    let state = crate::mcp_server::McpState {
+        session: session_state.inner().clone(),
+        app_handle: app,
+    };
+    let handle = crate::mcp_server::start(port, state).await;
+    let mut guard = mcp_handle.0.lock().await;
+    *guard = Some(handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_mcp_server(
+    mcp_handle: tauri::State<'_, crate::McpHandle>,
+) -> Result<(), String> {
+    let mut guard = mcp_handle.0.lock().await;
+    if let Some(h) = guard.take() {
+        h.abort();
+    }
+    Ok(())
 }

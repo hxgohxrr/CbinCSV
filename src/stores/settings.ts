@@ -15,6 +15,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const locale = ref(localStorage.getItem('locale') ?? 'es')
   const showSplash = ref(localStorage.getItem('showSplash') !== 'false')
   const soundVolume = ref(Number(localStorage.getItem('soundVolume') ?? 50))
+  const sourceLang = ref(localStorage.getItem('sourceLang') ?? '')
+  const mcpPort = ref(Number(localStorage.getItem('mcpPort') ?? 3001))
 
   watchEffect(() => localStorage.setItem('theme', theme.value))
   watchEffect(() => localStorage.setItem('accent', accent.value))
@@ -25,6 +27,8 @@ export const useSettingsStore = defineStore('settings', () => {
     if (el && !showSplash.value) el.remove()
   })
   watchEffect(() => localStorage.setItem('soundVolume', String(soundVolume.value)))
+  watchEffect(() => localStorage.setItem('sourceLang', sourceLang.value))
+  watchEffect(() => localStorage.setItem('mcpPort', String(mcpPort.value)))
 
   watchEffect(() => {
     const t = theme.value
@@ -45,5 +49,5 @@ export const useSettingsStore = defineStore('settings', () => {
     document.documentElement.style.setProperty('--accent-soft', `rgba(${r},${g},${b},0.22)`)
   })
 
-  return { theme, accent, locale, showSplash, soundVolume }
+  return { theme, accent, locale, showSplash, soundVolume, sourceLang, mcpPort }
 })

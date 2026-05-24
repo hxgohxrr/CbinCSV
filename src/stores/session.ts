@@ -5,6 +5,7 @@ import { listen } from '@tauri-apps/api/event'
 
 export interface TextEntry {
   index: number
+  field_type: string
   value: string
 }
 
@@ -13,7 +14,10 @@ export interface FileEntry {
   ev_name: string
   language: string
   entries: TextEntry[]
+  mode?: 'standard' | 'nnk' | 'rdbn'
 }
+
+export type GameProfile = 'level5' | 'yokai' | 'tt' | 'nnk'
 
 export interface SessionData {
   files: FileEntry[]
@@ -32,6 +36,9 @@ export const useSessionStore = defineStore('session', () => {
   const visibleLangs = ref<string[]>([])
   const searchQuery = ref('')
   const parseMode = ref<'standard' | 'nnk'>('standard')
+  const gameProfile = ref<GameProfile>('level5')
+  const diffMode = ref(false)
+  const originalValues = ref<Map<string, string>>(new Map())
 
   const languages = computed(() => {
     const set = new Set<string>()
@@ -43,6 +50,28 @@ export const useSessionStore = defineStore('session', () => {
     const set = new Set<string>()
     for (const f of files.value) set.add(f.ev_name)
     return [...set].sort()
+  })
+
+  const dirtyCount = computed(() => {
+    let count = 0
+    for (const f of files.value) {
+      for (const e of f.entries) {
+        const key = `${f.path}:${e.index}`
+        const orig = originalValues.value.get(key)
+        if (orig !== undefined && e.value !== orig) count++
+      }
+    }
+    return count
+  })
+
+  const formatSummary = computed(() => {
+    const counts = { t2b: 0, rdbn: 0, nnk: 0 }
+    for (const f of files.value) {
+      if (f.mode === 'rdbn') counts.rdbn++
+      else if (f.mode === 'nnk') counts.nnk++
+      else counts.t2b++
+    }
+    return counts
   })
 
   const totalEntries = computed(() => {
@@ -86,6 +115,18 @@ export const useSessionStore = defineStore('session', () => {
         visibleLangs.value.push(lang)
       }
     }
+    for (const inFile of incoming) {
+      for (const entry of inFile.entries) {
+        const key = `${inFile.path}:${entry.index}`
+        if (!originalValues.value.has(key)) {
+          originalValues.value.set(key, entry.value)
+        }
+      }
+    }
+    const hasRdbn = incoming.some(f => f.mode === 'rdbn')
+    const hasNnk  = incoming.some(f => f.mode === 'nnk')
+    if (hasNnk) gameProfile.value = 'nnk'
+    else if (hasRdbn && gameProfile.value === 'level5') gameProfile.value = 'yokai'
   }
 
   async function loadFiles(paths: string[]) {
@@ -129,16 +170,95 @@ export const useSessionStore = defineStore('session', () => {
     if (entry) entry.value = value
   }
 
-  async function exportCsv(outputPath: string, langs: string[], format: 'single' | 'per_file', separator: string) {
+  function replaceInEntries(
+    find: string,
+    replace: string,
+    lang: string,
+    caseSensitive: boolean
+  ): number {
+    if (!find) return 0
+    const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(escaped, caseSensitive ? 'g' : 'gi')
+    let count = 0
+    for (const file of files.value) {
+      if (lang !== 'all' && file.language !== lang) continue
+      for (const entry of file.entries) {
+        if (entry.field_type !== 'string') continue
+        const newVal = entry.value.replace(regex, replace)
+        if (newVal !== entry.value) {
+          entry.value = newVal
+          count++
+        }
+      }
+    }
+    return count
+  }
+
+  function getEntryDiff(ev: string, lang: string, idx: number): 'modified' | 'filled' | 'cleared' | null {
+    const file = files.value.find(f => f.ev_name === ev && f.language === lang)
+    if (!file) return null
+    const entry = file.entries.find(e => e.index === idx)
+    if (!entry) return null
+    const key = `${file.path}:${idx}`
+    const orig = originalValues.value.get(key)
+    if (orig === undefined || orig === entry.value) return null
+    if (!orig && entry.value) return 'filled'
+    if (orig && !entry.value) return 'cleared'
+    return 'modified'
+  }
+
+  function getTranslationSuggestions(
+    sourceText: string,
+    targetLang: string,
+    sourceLang: string
+  ): string[] {
+    if (!sourceText || !sourceLang || sourceLang === targetLang) return []
+    const seen = new Set<string>()
+    for (const srcFile of files.value) {
+      if (srcFile.language !== sourceLang) continue
+      for (const srcEntry of srcFile.entries) {
+        if (srcEntry.field_type !== 'string' || srcEntry.value !== sourceText) continue
+        const tgtFile = files.value.find(f => f.ev_name === srcFile.ev_name && f.language === targetLang)
+        const tgtEntry = tgtFile?.entries.find(e => e.index === srcEntry.index)
+        if (tgtEntry?.value) seen.add(tgtEntry.value)
+      }
+    }
+    return [...seen].slice(0, 5)
+  }
+
+  function countMatches(find: string, lang: string, caseSensitive: boolean): number {
+    if (!find) return 0
+    const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(escaped, caseSensitive ? 'g' : 'gi')
+    let count = 0
+    for (const file of files.value) {
+      if (lang !== 'all' && file.language !== lang) continue
+      for (const entry of file.entries) {
+        if (entry.field_type !== 'string') continue
+        const m = entry.value.match(regex)
+        if (m) count += m.length
+      }
+    }
+    return count
+  }
+
+  async function exportFormatted(
+    outputPath: string,
+    langs: string[],
+    format: 'single' | 'per_file',
+    fileFormat: 'csv' | 'json' | 'yaml' | 'toml' | 'xml',
+    separator: string
+  ) {
     error.value = null
     progress.value = { current: 0, total: files.value.length, message: '' }
     const unlisten = await listen<Progress>('progress', e => {
       progress.value = e.payload
     })
     try {
-      await invoke('export_csv', {
+      await invoke('export_formatted', {
         session: { files: files.value },
         format,
+        fileFormat,
         outputPath,
         langs,
         separator
@@ -151,11 +271,11 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  async function importCsvRows(csvPath: string, separator: string) {
+  async function importFormatted(filePath: string, separator: string) {
     error.value = null
     try {
-      const rows = await invoke<[string, number, Record<string, string>][]>('import_csv_rows', { csvPath, separator })
-      for (const [ev_name, index, langMap] of rows) {
+      const rows = await invoke<[string, string, number, Record<string, string>][]>('import_formatted', { filePath, separator })
+      for (const [ev_name, _field_type, index, langMap] of rows) {
         for (const [language, value] of Object.entries(langMap)) {
           updateEntry(ev_name, language, index, value)
         }
@@ -163,6 +283,27 @@ export const useSessionStore = defineStore('session', () => {
     } catch (e) {
       error.value = String(e)
     }
+  }
+
+  async function syncSession() {
+    try {
+      await invoke('sync_session', { session: { files: files.value } })
+    } catch (_) {}
+  }
+
+  async function startMcp(port: number) {
+    error.value = null
+    try {
+      await invoke('start_mcp_server', { port })
+    } catch (e) {
+      error.value = String(e)
+    }
+  }
+
+  async function stopMcp() {
+    try {
+      await invoke('stop_mcp_server')
+    } catch (_) {}
   }
 
   async function writeCfgbin(outputDir: string) {
@@ -190,6 +331,9 @@ export const useSessionStore = defineStore('session', () => {
     error.value = null
     visibleLangs.value = []
     searchQuery.value = ''
+    gameProfile.value = 'level5'
+    diffMode.value = false
+    originalValues.value = new Map()
   }
 
   return {
@@ -199,15 +343,26 @@ export const useSessionStore = defineStore('session', () => {
     visibleLangs,
     searchQuery,
     parseMode,
+    gameProfile,
+    diffMode,
     languages,
     evNames,
     totalEntries,
+    dirtyCount,
+    formatSummary,
     untranslatedCount,
+    getEntryDiff,
     loadFiles,
     loadFolder,
     updateEntry,
-    exportCsv,
-    importCsvRows,
+    replaceInEntries,
+    countMatches,
+    getTranslationSuggestions,
+    exportFormatted,
+    importFormatted,
+    syncSession,
+    startMcp,
+    stopMcp,
     writeCfgbin,
     clear
   }

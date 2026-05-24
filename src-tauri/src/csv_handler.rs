@@ -3,9 +3,14 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use crate::cfgbin::TextEntry;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum ParseMode { Standard, Nnk }
+pub enum ParseMode {
+    #[default]
+    Standard,
+    Nnk,
+    Rdbn,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEntry {
@@ -68,7 +73,7 @@ pub fn build_csv(
         .delimiter(separator as u8)
         .from_writer(vec![]);
 
-    let mut header = vec!["EV_NAME".to_string(), "INDEX".to_string()];
+    let mut header = vec!["EV_NAME".to_string(), "TYPE".to_string(), "INDEX".to_string()];
     for lang in langs {
         header.push(lang.to_uppercase());
     }
@@ -86,11 +91,17 @@ pub fn build_csv(
     }
 
     for (ev_name, index) in &pairs {
-        let mut row = vec![ev_name.clone(), index.to_string()];
+        let field_type = session.files.iter()
+            .find(|f| &f.ev_name == ev_name && langs.contains(&f.language))
+            .and_then(|f| f.entries.iter().find(|e| e.index == *index))
+            .map(|e| e.field_type.clone())
+            .unwrap_or_else(|| "string".to_string());
+
+        let mut row = vec![ev_name.clone(), field_type, index.to_string()];
         for lang in langs {
             let val = session.files.iter()
                 .find(|f| &f.ev_name == ev_name && &f.language == lang)
-                .and_then(|f| f.entries.get(*index))
+                .and_then(|f| f.entries.iter().find(|e| e.index == *index))
                 .map(|e| e.value.clone())
                 .unwrap_or_default();
             row.push(val);
@@ -105,7 +116,7 @@ pub fn build_csv(
 pub fn parse_csv_rows(
     csv_str: &str,
     separator: char,
-) -> Result<Vec<(String, usize, HashMap<String, String>)>> {
+) -> Result<Vec<(String, String, usize, HashMap<String, String>)>> {
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(separator as u8)
         .from_reader(csv_str.as_bytes());
@@ -115,11 +126,19 @@ pub fn parse_csv_rows(
         .map(|s| s.to_string())
         .collect();
 
-    if headers.len() < 3 || headers[0] != "EV_NAME" || headers[1] != "INDEX" {
-        bail!("CSV header must start with EV_NAME;INDEX");
+    if headers.len() < 3 || headers[0] != "EV_NAME" {
+        bail!("CSV header must start with EV_NAME");
     }
 
-    let lang_cols: Vec<String> = headers[2..].iter()
+    let has_type_col = headers.get(1).map(|s| s == "TYPE").unwrap_or(false);
+    let index_col = if has_type_col { 2 } else { 1 };
+    let lang_start = index_col + 1;
+
+    if headers.get(index_col).map(|s| s != "INDEX").unwrap_or(true) {
+        bail!("CSV header missing INDEX column");
+    }
+
+    let lang_cols: Vec<String> = headers[lang_start..].iter()
         .map(|s| s.to_lowercase())
         .collect();
 
@@ -127,13 +146,18 @@ pub fn parse_csv_rows(
     for result in rdr.records() {
         let record = result?;
         let ev_name = record.get(0).unwrap_or("").to_string();
-        let index: usize = record.get(1).unwrap_or("0").parse()?;
+        let field_type = if has_type_col {
+            record.get(1).unwrap_or("string").to_string()
+        } else {
+            "string".to_string()
+        };
+        let index: usize = record.get(index_col).unwrap_or("0").parse()?;
         let mut map = HashMap::new();
         for (i, lang) in lang_cols.iter().enumerate() {
-            let val = record.get(i + 2).unwrap_or("").to_string();
+            let val = record.get(lang_start + i).unwrap_or("").to_string();
             map.insert(lang.clone(), val);
         }
-        rows.push((ev_name, index, map));
+        rows.push((ev_name, field_type, index, map));
     }
     Ok(rows)
 }
@@ -176,8 +200,8 @@ mod tests {
                     language: "ja".to_string(),
                     mode: ParseMode::Standard,
                     entries: vec![
-                        TextEntry { index: 0, entry: "A".to_string(), variable_index: 0, value: "日本語".to_string() },
-                        TextEntry { index: 1, entry: "B".to_string(), variable_index: 0, value: "テスト".to_string() },
+                        TextEntry { index: 0, entry: "A".to_string(), variable_index: 0, field_type: "string".to_string(), value: "日本語".to_string() },
+                        TextEntry { index: 1, entry: "B".to_string(), variable_index: 0, field_type: "string".to_string(), value: "テスト".to_string() },
                     ],
                     addresses: None,
                 },
@@ -187,8 +211,8 @@ mod tests {
                     language: "es".to_string(),
                     mode: ParseMode::Standard,
                     entries: vec![
-                        TextEntry { index: 0, entry: "A".to_string(), variable_index: 0, value: "Hola".to_string() },
-                        TextEntry { index: 1, entry: "B".to_string(), variable_index: 0, value: "".to_string() },
+                        TextEntry { index: 0, entry: "A".to_string(), variable_index: 0, field_type: "string".to_string(), value: "Hola".to_string() },
+                        TextEntry { index: 1, entry: "B".to_string(), variable_index: 0, field_type: "string".to_string(), value: "".to_string() },
                     ],
                     addresses: None,
                 },
@@ -200,9 +224,10 @@ mod tests {
 
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].0, "ev00_0010");
-        assert_eq!(rows[0].1, 0);
-        assert_eq!(rows[0].2["ja"], "日本語");
-        assert_eq!(rows[0].2["es"], "Hola");
-        assert_eq!(rows[1].2["es"], "");
+        assert_eq!(rows[0].1, "string");
+        assert_eq!(rows[0].2, 0);
+        assert_eq!(rows[0].3["ja"], "日本語");
+        assert_eq!(rows[0].3["es"], "Hola");
+        assert_eq!(rows[1].3["es"], "");
     }
 }

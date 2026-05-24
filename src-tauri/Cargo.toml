@@ -19,3 +19,10 @@ anyhow = "1"
 encoding_rs = "0.8"
 csv = "1"
 sys-locale = "0.3"
+serde_yaml = "0.9"
+toml = "0.8"
+quick-xml = "0.36"
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"

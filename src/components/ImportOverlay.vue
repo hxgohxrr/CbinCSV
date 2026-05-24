@@ -18,39 +18,54 @@
       <div class="divider"><span>{{ t('import.continue') }}</span></div>
 
       <div class="btns">
-        <button class="btn btn-secondary" style="flex:1" @click="importFiles">
-          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2" y="1" width="10" height="12" rx="1.5"/>
-            <line x1="4.5" y1="5" x2="9.5" y2="5"/>
-          </svg>
+        <NButton style="flex:1" @click="importFiles">
+          <template #icon>
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="1" width="10" height="12" rx="1.5"/>
+              <line x1="4.5" y1="5" x2="9.5" y2="5"/>
+            </svg>
+          </template>
           {{ t('import.files') }}
-        </button>
-        <button class="btn btn-secondary" style="flex:1" @click="importFolder">
-          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M1 4h12v8H1zM1 4l2-2h4l2 2"/>
-          </svg>
+        </NButton>
+        <NButton style="flex:1" @click="importFolder">
+          <template #icon>
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M1 4h12v8H1zM1 4l2-2h4l2 2"/>
+            </svg>
+          </template>
           {{ t('import.folder') }}
-        </button>
+        </NButton>
       </div>
 
-      <div v-if="session.progress" class="progress-wrap">
-        <ProgressBar :current="session.progress.current" :total="session.progress.total" />
-      </div>
-      <p v-if="session.error" class="error-msg">{{ session.error }}</p>
+      <NProgress
+        v-if="session.progress"
+        type="line"
+        :percentage="progressPct"
+        :height="4"
+        :border-radius="2"
+        :show-indicator="false"
+        style="width: 100%"
+      />
+      <NAlert v-if="session.error" type="error" :title="session.error" :bordered="false" size="small" style="width:100%" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { NButton, NProgress, NAlert } from 'naive-ui'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useSessionStore } from '../stores/session'
 import { useI18n } from '../i18n'
-import ProgressBar from './ProgressBar.vue'
 
 defineProps<{ isDragging: boolean }>()
 
 const session = useSessionStore()
 const { t } = useI18n()
+
+const progressPct = computed(() =>
+  session.progress?.total ? Math.round(session.progress.current / session.progress.total * 100) : 0
+)
 
 async function importFiles() {
   const selected = await open({
@@ -134,6 +149,4 @@ async function importFolder() {
   letter-spacing: 0.08em;
 }
 .btns { display: flex; gap: 8px; width: 100%; }
-.progress-wrap { width: 100%; }
-.error-msg { font-size: 11px; color: var(--danger); text-align: center; }
 </style>

@@ -1,14 +1,7 @@
 <template>
   <header class="titlebar" :class="{ 'is-mac': isMac }" data-tauri-drag-region>
     <div class="logo" data-tauri-drag-region>
-      <div class="logo-mark">
-        <svg viewBox="0 0 12 12" fill="none">
-          <rect x="1" y="1" width="4" height="4" rx="1" fill="currentColor" opacity="1"/>
-          <rect x="7" y="1" width="4" height="4" rx="1" fill="currentColor" opacity="1"/>
-          <rect x="1" y="7" width="4" height="4" rx="1" fill="currentColor" opacity="1"/>
-          <rect x="7" y="7" width="4" height="4" rx="1" fill="currentColor" opacity="0.35"/>
-        </svg>
-      </div>
+      <img :src="appIcon" class="logo-mark" alt="" />
       <span class="logo-name">CBin<em>CSV</em></span>
     </div>
 
@@ -34,6 +27,7 @@
 
 <script setup lang="ts">
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import appIcon from '../assets/logo.png'
 
 const isMac = /Macintosh|MacIntel/.test(navigator.userAgent)
 
@@ -60,11 +54,9 @@ async function close() { await win.close() }
 .logo { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .logo-mark {
   width: 20px; height: 20px;
-  background: var(--accent); border-radius: 4px;
-  display: flex; align-items: center; justify-content: center;
-  color: #101828; flex-shrink: 0;
+  flex-shrink: 0;
+  object-fit: contain;
 }
-.logo-mark svg { width: 11px; height: 11px; }
 .logo-name { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; }
 .logo-name em { font-style: normal; color: var(--accent); }
 

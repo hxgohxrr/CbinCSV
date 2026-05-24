@@ -982,55 +982,79 @@ impl CfgBin {
     ) {
         let entry_name = entry.get_name();
         for (var_idx, var) in entry.variables.iter().enumerate() {
-            if let VarValue::String(opt) = &var.value {
-                texts.push(TextEntry {
-                    index: *global_index,
-                    entry: entry_name.clone(),
-                    variable_index: var_idx,
-                    value: opt.clone().unwrap_or_default(),
-                });
-                *global_index += 1;
-            }
+            let (field_type, value) = match &var.value {
+                VarValue::String(opt) => ("string".to_string(), opt.clone().unwrap_or_default()),
+                VarValue::Int(v)      => ("int".to_string(),    v.to_string()),
+                VarValue::Float(v)    => ("float".to_string(),  v.to_string()),
+                VarValue::Unknown(v)  => ("unknown".to_string(), v.to_string()),
+            };
+            texts.push(TextEntry {
+                index: *global_index,
+                entry: entry_name.clone(),
+                variable_index: var_idx,
+                field_type,
+                value,
+            });
+            *global_index += 1;
         }
         for child in &entry.children {
             Self::collect_texts_recursive(child, texts, global_index);
         }
     }
 
-    /// Update text fields from a list of TextEntry (from JSON import)
+    /// Update all fields (string, int, float, unknown) from a list of TextEntry
     pub fn update_texts(&mut self, texts: &[TextEntry]) {
-        let mut text_iter_index = 0usize;
         let mut global_index = 0usize;
         for entry in &mut self.entries {
-            Self::update_texts_recursive(entry, texts, &mut text_iter_index, &mut global_index);
+            Self::update_texts_recursive(entry, texts, &mut global_index);
         }
     }
 
     fn update_texts_recursive(
         entry: &mut Entry,
         texts: &[TextEntry],
-        text_iter_index: &mut usize,
         global_index: &mut usize,
     ) {
-        for (_var_idx, var) in entry.variables.iter_mut().enumerate() {
-            if let VarValue::String(_) = &var.value {
-                if let Some(te) = texts.iter().find(|t| t.index == *global_index) {
-                    var.value = VarValue::String(Some(te.value.clone()));
+        for var in entry.variables.iter_mut() {
+            if let Some(te) = texts.iter().find(|t| t.index == *global_index) {
+                match &mut var.value {
+                    VarValue::String(_) => {
+                        var.value = VarValue::String(Some(te.value.clone()));
+                    }
+                    VarValue::Int(_) => {
+                        if let Ok(v) = te.value.parse::<i32>() {
+                            var.value = VarValue::Int(v);
+                        }
+                    }
+                    VarValue::Float(_) => {
+                        if let Ok(v) = te.value.parse::<f32>() {
+                            var.value = VarValue::Float(v);
+                        }
+                    }
+                    VarValue::Unknown(_) => {
+                        if let Ok(v) = te.value.parse::<i32>() {
+                            var.value = VarValue::Unknown(v);
+                        }
+                    }
                 }
-                *global_index += 1;
             }
+            *global_index += 1;
         }
         for child in &mut entry.children {
-            Self::update_texts_recursive(child, texts, text_iter_index, global_index);
+            Self::update_texts_recursive(child, texts, global_index);
         }
     }
 }
+
+fn default_field_type() -> String { "string".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextEntry {
     pub index: usize,
     pub entry: String,
     pub variable_index: usize,
+    #[serde(default = "default_field_type")]
+    pub field_type: String,
     pub value: String,
 }
 
@@ -1230,6 +1254,7 @@ mod tests {
             index: 0,
             entry: "TEST".to_string(),
             variable_index: 0,
+            field_type: "string".to_string(),
             value: String::new(),
         }];
         cfg.update_texts(&texts);

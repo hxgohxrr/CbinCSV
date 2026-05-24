@@ -4,103 +4,144 @@
     <div class="drawer-body">
 
       <div class="field">
-        <label class="form-label">{{ t('export.format') }}</label>
-        <select class="form-select" v-model="format">
-          <option value="single">{{ t('export.format.single') }}</option>
-          <option value="per_file">{{ t('export.format.perFile') }}</option>
-        </select>
+        <span class="field-label">{{ t('export.fileFormat') }}</span>
+        <NSelect v-model:value="fileFormat" :options="fileFormatOptions" size="small" />
       </div>
 
       <div class="field">
-        <label class="form-label">{{ t('export.langs') }}</label>
-        <div class="check-list">
-          <label v-for="lang in session.languages" :key="lang" class="check-item">
-            <input type="checkbox" :value="lang" v-model="selectedLangs" />
+        <span class="field-label">{{ t('export.format') }}</span>
+        <NSelect v-model:value="format" :options="formatOptions" size="small" />
+      </div>
+
+      <div class="field">
+        <span class="field-label">{{ t('export.langs') }}</span>
+        <NSpace vertical :size="6">
+          <NCheckbox
+            v-for="lang in session.languages"
+            :key="lang"
+            :value="lang"
+            :checked="selectedLangs.includes(lang)"
+            @update:checked="(v) => toggleLang(lang, v)"
+          >
             {{ langLabel(lang) }} ({{ lang.toUpperCase() }})
-          </label>
-        </div>
+          </NCheckbox>
+        </NSpace>
       </div>
 
-      <div class="field">
-        <label class="form-label">{{ t('export.separator') }}</label>
-        <select class="form-select" v-model="separator">
-          <option value=";">{{ t('export.sep.semicolon') }}</option>
-          <option value=",">{{ t('export.sep.comma') }}</option>
-          <option value="&#9;">{{ t('export.sep.tab') }}</option>
-        </select>
+      <div v-if="fileFormat === 'csv'" class="field">
+        <span class="field-label">{{ t('export.separator') }}</span>
+        <NSelect v-model:value="separator" :options="sepOptions" size="small" />
       </div>
 
-      <div v-if="session.progress" class="field">
-        <ProgressBar :current="session.progress.current" :total="session.progress.total" />
-      </div>
+      <NProgress
+        v-if="session.progress"
+        type="line"
+        :percentage="progressPct"
+        :height="4"
+        :border-radius="2"
+        :show-indicator="false"
+        style="margin-top: 4px"
+      />
 
-      <p v-if="session.error" class="error-msg">{{ session.error }}</p>
+      <NAlert v-if="session.error" type="error" :title="session.error" :bordered="false" size="small" />
+
     </div>
 
     <div class="drawer-footer">
-      <button class="btn btn-primary btn-full" @click="doExport">
-        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M2 10V12h10v-2M7 2v7M4 6l3 3 3-3"/>
-        </svg>
+      <NButton type="primary" block :loading="!!session.progress" @click="doExport">
+        <template #icon>
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 10V12h10v-2M7 2v7M4 6l3 3 3-3"/>
+          </svg>
+        </template>
         {{ t('export.btn') }}
-      </button>
-      <button class="btn btn-secondary btn-full" @click="doReimport">
-        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M7 12V3M4 9l3 3 3-3M2 12h10"/>
-        </svg>
+      </NButton>
+      <NButton block :loading="!!session.progress" @click="doReimport" style="margin-top: 6px">
+        <template #icon>
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M7 12V3M4 9l3 3 3-3M2 12h10"/>
+          </svg>
+        </template>
         {{ t('reimport.btn') }}
-      </button>
+      </NButton>
     </div>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, inject } from 'vue'
+import { ref, computed, watch, inject } from 'vue'
+import { NSelect, NCheckbox, NSpace, NProgress, NButton, NAlert } from 'naive-ui'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { useSessionStore } from '../stores/session'
 import { useI18n } from '../i18n'
-import ProgressBar from './ProgressBar.vue'
 
 const session = useSessionStore()
 const { t } = useI18n()
 const playExported = inject<() => void>('playExported', () => {})
 
+type FileFormat = 'csv' | 'json' | 'yaml' | 'toml' | 'xml'
+
+const fileFormat = ref<FileFormat>('csv')
 const format = ref<'single' | 'per_file'>('single')
 const separator = ref(';')
 const selectedLangs = ref<string[]>([...session.languages])
 
-watch(() => session.languages, (langs) => {
-  selectedLangs.value = [...langs]
-})
+watch(() => session.languages, (langs) => { selectedLangs.value = [...langs] })
+
+const fileFormatOptions = computed(() => [
+  { label: t('export.format.csv'),  value: 'csv' },
+  { label: t('export.format.json'), value: 'json' },
+  { label: t('export.format.yaml'), value: 'yaml' },
+  { label: t('export.format.toml'), value: 'toml' },
+  { label: t('export.format.xml'),  value: 'xml' },
+])
+const formatOptions = computed(() => [
+  { label: t('export.format.single'),  value: 'single' },
+  { label: t('export.format.perFile'), value: 'per_file' },
+])
+const sepOptions = computed(() => [
+  { label: t('export.sep.semicolon'), value: ';' },
+  { label: t('export.sep.comma'),     value: ',' },
+  { label: t('export.sep.tab'),       value: '\t' },
+])
+
+const progressPct = computed(() =>
+  session.progress?.total ? Math.round(session.progress.current / session.progress.total * 100) : 0
+)
 
 const langLabels: Record<string, string> = {
-  ja: '日本語',
-  es: 'Español',
-  en: 'English',
-  fr: 'Français',
-  de: 'Deutsch',
-  it: 'Italiano'
+  ja: '日本語', es: 'Español', en: 'English',
+  fr: 'Français', de: 'Deutsch', it: 'Italiano'
 }
 function langLabel(l: string) { return langLabels[l] ?? l }
+function toggleLang(lang: string, checked: boolean) {
+  if (checked) { if (!selectedLangs.value.includes(lang)) selectedLangs.value.push(lang) }
+  else { selectedLangs.value = selectedLangs.value.filter(l => l !== lang) }
+}
+
+const FILE_EXTENSIONS: Record<FileFormat, string[]> = {
+  csv: ['csv'], json: ['json'], yaml: ['yaml', 'yml'], toml: ['toml'], xml: ['xml']
+}
 
 async function doExport() {
+  const ext = FILE_EXTENSIONS[fileFormat.value]
   if (format.value === 'single') {
-    const path = await save({ filters: [{ name: 'CSV', extensions: ['csv'] }] })
+    const path = await save({ filters: [{ name: fileFormat.value.toUpperCase(), extensions: ext }] })
     if (!path) return
-    await session.exportCsv(path, selectedLangs.value, format.value, separator.value)
+    await session.exportFormatted(path, selectedLangs.value, format.value, fileFormat.value, separator.value)
   } else {
     const dir = await open({ directory: true })
     if (!dir || Array.isArray(dir)) return
-    await session.exportCsv(dir as string, selectedLangs.value, format.value, separator.value)
+    await session.exportFormatted(dir as string, selectedLangs.value, format.value, fileFormat.value, separator.value)
   }
   playExported()
 }
 
 async function doReimport() {
-  const csvPath = await open({ filters: [{ name: 'CSV', extensions: ['csv'] }] })
-  if (!csvPath || Array.isArray(csvPath)) return
-  await session.importCsvRows(csvPath, separator.value)
-
+  const allExts = ['csv', 'json', 'yaml', 'yml', 'toml', 'xml']
+  const filePath = await open({ filters: [{ name: 'Export files', extensions: allExts }] })
+  if (!filePath || Array.isArray(filePath)) return
+  await session.importFormatted(filePath, separator.value)
   const outDir = await open({ directory: true })
   if (!outDir || Array.isArray(outDir)) return
   await session.writeCfgbin(outDir as string)
@@ -133,23 +174,16 @@ async function doReimport() {
   gap: 14px;
   overflow-y: auto;
 }
-.field { display: flex; flex-direction: column; gap: 4px; }
-.check-list { display: flex; flex-direction: column; gap: 5px; }
-.check-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-2);
-  cursor: pointer;
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
 }
-.check-item input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
 .drawer-footer {
   padding: 12px;
   border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
-.error-msg { font-size: 11px; color: var(--danger); }
 </style>
